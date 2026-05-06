@@ -1,0 +1,60 @@
+@use 'tokens' as *;
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: $paper;
+    color: $ink;
+    font-family: 'Inter Tight', system-ui, sans-serif;
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(194, 65, 12, 0.04), transparent 40%),
+      radial-gradient(circle at 100% 100%, rgba(31, 27, 22, 0.04), transparent 35%);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: rgba(194, 65, 12, 0.18);
+  }
+}
+
+@layer components {
+  .note-card {
+    transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                box-shadow 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    &:hover {
+      transform: translateY(-2px);
+    }
+  }
+
+  .grain {
+    position: relative;
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.4;
+      mix-blend-mode: multiply;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+  }
+}
+
+// Note color swatches — soft, paper-like
+.color-default { background: #fefcf8; }
+.color-rose    { background: #fde4dc; }
+.color-amber   { background: #fbe8c2; }
+.color-sage    { background: #d9e6d2; }
+.color-sky     { background: #d4e4ec; }
+.color-lilac   { background: #e3d8ec; }
+.color-stone   { background: #e6e0d6; }
