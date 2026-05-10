@@ -211,3 +211,88 @@ server {
 - **JWT security:** Consider moving the JWT from localStorage into an `httpOnly` cookie to harden against XSS token theft.
 - **Cookies:** Set `cookie.secure: true` and `sameSite: 'none'` once running behind HTTPS.
 - **PWA icons:** Drop `icon-192.png` and `icon-512.png` into `client/public/` before building — the service worker registration will fail without them.
+
+---
+
+## Containerized deployment (Docker + Traefik)
+
+The repo ships with a `docker-compose.yml` that runs the full stack — PostgreSQL, the Express API, the React frontend (behind nginx), and Traefik as the edge proxy with automatic Let's Encrypt TLS.
+
+```
+internet → Traefik :443 → nginx (client) → Express (server) → PostgreSQL
+                  :80  → redirect to HTTPS
+```
+
+Traefik provisions and renews the TLS certificate automatically via the ACME HTTP challenge. Uploads and database data are persisted in named Docker volumes.
+
+### Prerequisites
+
+- Docker and Docker Compose v2 installed on the host
+- Ports 80 and 443 open and reachable from the internet (required for ACME HTTP challenge)
+- A domain with its DNS A record pointed at the host
+
+### 1. Update your GitHub OAuth app
+
+In your GitHub OAuth app settings, set production URLs:
+- **Homepage URL:** `https://yourdomain.com`
+- **Authorization callback URL:** `https://yourdomain.com/api/auth/github/callback`
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Fill in every value:
+
+```
+DOMAIN=yourdomain.com
+ACME_EMAIL=you@example.com
+
+POSTGRES_PASSWORD=<strong random password>
+
+JWT_SECRET=<64+ random chars>
+SESSION_SECRET=<64+ random chars>
+
+GITHUB_CLIENT_ID=<your prod app id>
+GITHUB_CLIENT_SECRET=<your prod app secret>
+```
+
+Generate strong secrets with:
+```bash
+openssl rand -hex 32
+```
+
+`CLIENT_URL` and `GITHUB_CALLBACK_URL` are derived from `DOMAIN` automatically — no need to set them separately.
+
+### 3. Build and start
+
+```bash
+docker compose up -d --build
+```
+
+On first run this will:
+1. Pull base images and build the client and server images
+2. Start PostgreSQL and wait for it to be healthy
+3. Run `prisma migrate deploy` inside the server container
+4. Obtain a TLS certificate from Let's Encrypt
+5. Serve the app at `https://yourdomain.com`
+
+### Useful commands
+
+```bash
+# View logs
+docker compose logs -f
+
+# Rebuild after a code change
+docker compose up -d --build client   # or server
+
+# Run a Prisma migration after a schema change
+docker compose exec server node_modules/.bin/prisma migrate deploy
+
+# Open a psql shell
+docker compose exec db psql -U postgres keepsake
+
+# Stop everything (data volumes are preserved)
+docker compose down
+```
