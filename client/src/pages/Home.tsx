@@ -33,6 +33,10 @@ export default function Home() {
   }, [query]);
 
   const handleSaved = (note: Note) => {
+    if (note.archived) {
+      setNotes((prev) => prev.filter((n) => n.id !== note.id));
+      return;
+    }
     setNotes((prev) => {
       const exists = prev.find((n) => n.id === note.id);
       const next = exists ? prev.map((n) => (n.id === note.id ? note : n)) : [note, ...prev];

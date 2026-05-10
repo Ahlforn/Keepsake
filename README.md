@@ -86,8 +86,128 @@ Open http://localhost:5173. The Vite dev server proxies `/api` and `/uploads` to
 
 Run `npm run build` in `client/` and serve `dist/` over HTTPS. Lighthouse should give it the install prompt — the manifest, icons, and service worker are configured by `vite-plugin-pwa`. You'll need to drop your own `icon-192.png` and `icon-512.png` into `client/public/` before shipping.
 
-## Production notes
+---
 
-- Move uploads to S3-compatible storage; the local-disk approach is dev-only.
-- Put the JWT in an httpOnly cookie if you want to harden against XSS token theft. The current setup is a pragmatic default for an OAuth-redirect SPA.
-- Tighten `cookie.secure: true` and `sameSite: 'none'` once you're behind HTTPS.
+## Deployment
+
+### Prerequisites
+
+- Node.js 20+
+- PostgreSQL 14+ accessible from the server
+- A domain with HTTPS (required for PWA install and secure cookies)
+
+### 1. Update your GitHub OAuth app
+
+In your GitHub OAuth app settings, add production URLs:
+- **Homepage URL:** `https://yourdomain.com`
+- **Authorization callback URL:** `https://yourdomain.com/api/auth/github/callback`
+
+### 2. Build the client
+
+```bash
+cd client
+npm install
+npm run build   # outputs to client/dist/
+```
+
+### 3. Build the server
+
+```bash
+cd server
+npm install
+npm run build   # compiles TypeScript to server/dist/
+```
+
+### 4. Configure production environment
+
+Copy and edit the server env file:
+
+```bash
+cp server/.env.example server/.env
+```
+
+Update every value for production:
+
+```
+DATABASE_URL="postgresql://user:pass@host:5432/keepsake?schema=public"
+PORT=4000
+CLIENT_URL="https://yourdomain.com"
+
+JWT_SECRET="<64+ random chars>"
+SESSION_SECRET="<64+ random chars>"
+
+GITHUB_CLIENT_ID="<your prod app id>"
+GITHUB_CLIENT_SECRET="<your prod app secret>"
+GITHUB_CALLBACK_URL="https://yourdomain.com/api/auth/github/callback"
+```
+
+Generate strong secrets with: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
+
+### 5. Run database migrations
+
+```bash
+cd server
+npx prisma migrate deploy
+```
+
+Use `migrate deploy` (not `migrate dev`) in production — it applies pending migrations without generating new ones.
+
+### 6. Start the server
+
+```bash
+cd server
+node dist/index.js
+```
+
+For process management, use [PM2](https://pm2.keymetrics.io/):
+
+```bash
+npm install -g pm2
+pm2 start dist/index.js --name keepsake --cwd server
+pm2 save
+pm2 startup   # follow the printed command to enable on reboot
+```
+
+### 7. Reverse proxy with nginx
+
+Serve `client/dist/` as static files and proxy `/api` and `/uploads` to the Express server. Example config:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name yourdomain.com;
+
+    # SSL config here (certbot/Let's Encrypt recommended)
+
+    root /path/to/keepsake/client/dist;
+    index index.html;
+
+    # SPA fallback
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /uploads/ {
+        proxy_pass http://127.0.0.1:4000;
+    }
+}
+
+server {
+    listen 80;
+    server_name yourdomain.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+### Production notes
+
+- **Uploads:** The local-disk upload storage is dev-only. For production, move uploads to an S3-compatible store and update the multer configuration.
+- **JWT security:** Consider moving the JWT from localStorage into an `httpOnly` cookie to harden against XSS token theft.
+- **Cookies:** Set `cookie.secure: true` and `sameSite: 'none'` once running behind HTTPS.
+- **PWA icons:** Drop `icon-192.png` and `icon-512.png` into `client/public/` before building — the service worker registration will fail without them.
