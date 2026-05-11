@@ -1,22 +1,33 @@
-FROM node:20-alpine AS builder
+# Stage 1: build client
+FROM node:20-alpine AS client-builder
 WORKDIR /app
-COPY package*.json ./
+COPY client/package*.json ./
 RUN npm ci
-COPY prisma ./prisma
-RUN npx prisma generate
-COPY tsconfig.json .
-COPY src ./src
+COPY client/ ./
 RUN npm run build
 
+# Stage 2: build server
+FROM node:20-alpine AS server-builder
+WORKDIR /app
+COPY server/package*.json ./
+RUN npm ci
+COPY server/prisma ./prisma
+RUN npx prisma generate
+COPY server/tsconfig.json .
+COPY server/src ./src
+RUN npm run build
+
+# Stage 3: runtime
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-COPY package*.json ./
+COPY server/package*.json ./
 RUN npm ci --omit=dev
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder /app/dist ./dist
-COPY prisma ./prisma
+COPY --from=server-builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=server-builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=server-builder /app/dist ./dist
+COPY server/prisma ./prisma
+COPY --from=client-builder /app/dist ./client-dist
 RUN mkdir -p uploads
 EXPOSE 4000
 CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node dist/index.js"]

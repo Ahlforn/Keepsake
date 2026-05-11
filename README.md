@@ -4,7 +4,7 @@ A Google Keep–inspired note-taking PWA. Quiet, paper-textured, with the bones 
 
 **Stack**
 - **Client:** React 18 + TypeScript + Vite + Tailwind + SCSS, installable PWA via `vite-plugin-pwa`
-- **Server:** Node.js + Express + TypeScript
+- **Server:** Node.js + Express + TypeScript — serves both the API and the compiled SPA in production
 - **Database:** PostgreSQL via Prisma
 - **Auth:** GitHub OAuth2 (Passport) → JWT bearer tokens
 
@@ -22,7 +22,7 @@ A Google Keep–inspired note-taking PWA. Quiet, paper-textured, with the bones 
 ```
 keepsake/
 ├── client/   # Vite + React PWA
-└── server/   # Express + Prisma API
+└── server/   # Express + Prisma API (also serves the SPA in production)
 ```
 
 ## 1. Database
@@ -65,7 +65,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. The Vite dev server proxies `/api` and `/uploads` to the backend, so no CORS gymnastics in dev.
+Open http://localhost:5173. The Vite dev server proxies `/api` and `/uploads` to the backend, so no CORS friction in dev.
 
 ## API surface
 
@@ -84,7 +84,7 @@ Open http://localhost:5173. The Vite dev server proxies `/api` and `/uploads` to
 
 ## PWA installability
 
-Run `npm run build` in `client/` and serve `dist/` over HTTPS. Lighthouse should give it the install prompt — the manifest, icons, and service worker are configured by `vite-plugin-pwa`. You'll need to drop your own `icon-192.png` and `icon-512.png` into `client/public/` before shipping.
+Run `npm run build` in `client/` and serve via the Express server over HTTPS. Lighthouse should give it the install prompt — the manifest, icons, and service worker are configured by `vite-plugin-pwa`. You'll need to drop your own `icon-192.png` and `icon-512.png` into `client/public/` before shipping.
 
 ---
 
@@ -102,23 +102,21 @@ In your GitHub OAuth app settings, add production URLs:
 - **Homepage URL:** `https://yourdomain.com`
 - **Authorization callback URL:** `https://yourdomain.com/api/auth/github/callback`
 
-### 2. Build the client
-
-```bash
-cd client
-npm install
-npm run build   # outputs to client/dist/
-```
-
-### 3. Build the server
+### 2. Build both packages
 
 ```bash
 cd server
-npm install
-npm run build   # compiles TypeScript to server/dist/
+npm run build:all   # builds client/dist then server/dist
 ```
 
-### 4. Configure production environment
+Or build them separately:
+
+```bash
+cd client && npm install && npm run build   # outputs to client/dist/
+cd server && npm install && npm run build   # compiles TypeScript to server/dist/
+```
+
+### 3. Configure production environment
 
 Copy and edit the server env file:
 
@@ -130,8 +128,8 @@ Update every value for production:
 
 ```
 DATABASE_URL="postgresql://user:pass@host:5432/keepsake?schema=public"
+NODE_ENV=production
 PORT=4000
-CLIENT_URL="https://yourdomain.com"
 
 JWT_SECRET="<64+ random chars>"
 SESSION_SECRET="<64+ random chars>"
@@ -139,9 +137,20 @@ SESSION_SECRET="<64+ random chars>"
 GITHUB_CLIENT_ID="<your prod app id>"
 GITHUB_CLIENT_SECRET="<your prod app secret>"
 GITHUB_CALLBACK_URL="https://yourdomain.com/api/auth/github/callback"
+
+# Optional: path to the compiled client bundle (default: ./client-dist relative to CWD)
+# CLIENT_DIST_DIR=../client/dist
 ```
 
 Generate strong secrets with: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
+
+### 4. Place the client build where the server can find it
+
+Copy `client/dist/` to wherever `CLIENT_DIST_DIR` points (default is `client-dist/` next to the server's working directory):
+
+```bash
+cp -r client/dist server/client-dist
+```
 
 ### 5. Run database migrations
 
@@ -156,8 +165,10 @@ Use `migrate deploy` (not `migrate dev`) in production — it applies pending mi
 
 ```bash
 cd server
-node dist/index.js
+NODE_ENV=production node dist/index.js
 ```
+
+With `NODE_ENV=production` set, Express serves the compiled SPA at `/`, the API at `/api/*`, and uploads at `/uploads/*`. A SPA fallback ensures deep links (e.g. `/archive`) return `index.html` instead of a 404.
 
 For process management, use [PM2](https://pm2.keymetrics.io/):
 
@@ -168,60 +179,24 @@ pm2 save
 pm2 startup   # follow the printed command to enable on reboot
 ```
 
-### 7. Reverse proxy with nginx
-
-Serve `client/dist/` as static files and proxy `/api` and `/uploads` to the Express server. Example config:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name yourdomain.com;
-
-    # SSL config here (certbot/Let's Encrypt recommended)
-
-    root /path/to/keepsake/client/dist;
-    index index.html;
-
-    # SPA fallback
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    location /uploads/ {
-        proxy_pass http://127.0.0.1:4000;
-    }
-}
-
-server {
-    listen 80;
-    server_name yourdomain.com;
-    return 301 https://$host$request_uri;
-}
-```
-
 ### Production notes
 
 - **Uploads:** The local-disk upload storage is dev-only. For production, move uploads to an S3-compatible store and update the multer configuration.
 - **JWT security:** Consider moving the JWT from localStorage into an `httpOnly` cookie to harden against XSS token theft.
-- **Cookies:** Set `cookie.secure: true` and `sameSite: 'none'` once running behind HTTPS.
 - **PWA icons:** Drop `icon-192.png` and `icon-512.png` into `client/public/` before building — the service worker registration will fail without them.
 
 ---
 
 ## Containerized deployment (Docker + Traefik)
 
-The repo ships with a `docker-compose.yml` that runs the full stack — PostgreSQL, the Express API, the React frontend (behind nginx), and Traefik as the edge proxy with automatic Let's Encrypt TLS.
+The repo ships with a `docker-compose.yml` that runs the full stack — PostgreSQL, the Express server (which also serves the compiled SPA), and Traefik as the edge proxy with automatic Let's Encrypt TLS.
 
 ```
-internet → Traefik :443 → nginx (client) → Express (server) → PostgreSQL
+internet → Traefik :443 → Express :4000 → PostgreSQL
                   :80  → redirect to HTTPS
 ```
+
+The Express server handles everything: API routes at `/api/*`, uploads at `/uploads/*`, and the React SPA (with HTML5 history fallback) at `/`. No separate nginx or client container needed.
 
 Traefik provisions and renews the TLS certificate automatically via the ACME HTTP challenge. Uploads and database data are persisted in named Docker volumes.
 
@@ -263,7 +238,7 @@ Generate strong secrets with:
 openssl rand -hex 32
 ```
 
-`CLIENT_URL` and `GITHUB_CALLBACK_URL` are derived from `DOMAIN` automatically — no need to set them separately.
+`GITHUB_CALLBACK_URL` is derived from `DOMAIN` automatically — no need to set it separately.
 
 ### 3. Build and start
 
@@ -272,7 +247,7 @@ docker compose up -d --build
 ```
 
 On first run this will:
-1. Pull base images and build the client and server images
+1. Build a single image: compiles the React SPA, then the Express server, and bundles them together
 2. Start PostgreSQL and wait for it to be healthy
 3. Run `prisma migrate deploy` inside the server container
 4. Obtain a TLS certificate from Let's Encrypt
@@ -285,7 +260,7 @@ On first run this will:
 docker compose logs -f
 
 # Rebuild after a code change
-docker compose up -d --build client   # or server
+docker compose up -d --build server
 
 # Run a Prisma migration after a schema change
 docker compose exec server node_modules/.bin/prisma migrate deploy

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import session from 'express-session';
 import path from 'node:path';
 import passport from './lib/passport.js';
@@ -12,12 +13,13 @@ import attachmentsRoutes from './routes/attachments.js';
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
 
-app.use(
-  cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    credentials: true,
-  }),
-);
+app.set('trust proxy', 1);
+app.use(compression());
+
+if (process.env.CORS_ORIGIN) {
+  app.use(cors({ origin: process.env.CORS_ORIGIN, credentials: true }));
+}
+
 app.use(express.json({ limit: '1mb' }));
 app.use(
   session({
@@ -39,6 +41,24 @@ app.use('/api/auth', authRoutes);
 app.use('/api/notes', notesRoutes);
 app.use('/api/tags', tagsRoutes);
 app.use('/api/attachments', attachmentsRoutes);
+
+// Serve compiled SPA in production
+if (process.env.NODE_ENV === 'production') {
+  const clientDist = path.resolve(process.cwd(), process.env.CLIENT_DIST_DIR ?? './client-dist');
+
+  // Hashed Vite assets — long-lived immutable cache
+  app.use('/assets', express.static(path.join(clientDist, 'assets'), { maxAge: '1y', immutable: true }));
+
+  // Other static files (manifest, sw, workbox, favicon) — short cache, no automatic index
+  app.use(express.static(clientDist, { maxAge: '1h', index: false }));
+
+  // SPA fallback — always serve index.html for non-API, non-upload paths
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
+    res.set('Cache-Control', 'no-cache');
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
 
 // Error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

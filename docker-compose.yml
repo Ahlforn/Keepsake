@@ -37,12 +37,18 @@ services:
 
   server:
     build:
-      context: ./server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: server/Dockerfile
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.keepsake.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.keepsake.entrypoints=websecure
+      - traefik.http.routers.keepsake.tls.certresolver=letsencrypt
+      - traefik.http.services.keepsake.loadbalancer.server.port=4000
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/keepsake
+      NODE_ENV: production
       PORT: 4000
-      CLIENT_URL: https://${DOMAIN}
       JWT_SECRET: ${JWT_SECRET}
       SESSION_SECRET: ${SESSION_SECRET}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
@@ -53,20 +59,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    restart: unless-stopped
-
-  client:
-    build:
-      context: ./client
-      dockerfile: Dockerfile
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.client.rule=Host(`${DOMAIN}`)
-      - traefik.http.routers.client.entrypoints=websecure
-      - traefik.http.routers.client.tls.certresolver=letsencrypt
-      - traefik.http.services.client.loadbalancer.server.port=80
-    depends_on:
-      - server
     restart: unless-stopped
 
 volumes:
