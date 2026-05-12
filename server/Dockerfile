@@ -9,6 +9,7 @@ RUN npm run build
 # Stage 2: build server
 FROM node:20-slim AS server-builder
 WORKDIR /app
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 COPY server/package*.json ./
 RUN npm ci
 COPY server/prisma ./prisma
@@ -21,6 +22,7 @@ RUN npm run build
 FROM node:20-slim
 WORKDIR /app
 ENV NODE_ENV=production
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 COPY server/package*.json ./
 RUN npm ci --omit=dev
 COPY --from=server-builder /app/node_modules/.prisma ./node_modules/.prisma
