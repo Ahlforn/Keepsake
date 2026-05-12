@@ -1,5 +1,5 @@
 # Stage 1: build client
-FROM node:20-alpine AS client-builder
+FROM node:20-slim AS client-builder
 WORKDIR /app
 COPY client/package*.json ./
 RUN npm ci
@@ -7,7 +7,7 @@ COPY client/ ./
 RUN npm run build
 
 # Stage 2: build server
-FROM node:20-alpine AS server-builder
+FROM node:20-slim AS server-builder
 WORKDIR /app
 COPY server/package*.json ./
 RUN npm ci
@@ -18,7 +18,7 @@ COPY server/src ./src
 RUN npm run build
 
 # Stage 3: runtime
-FROM node:20-alpine
+FROM node:20-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY server/package*.json ./
