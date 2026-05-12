@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import compression from 'compression';
 import session from 'express-session';
+import connectPgSimple from 'connect-pg-simple';
 import path from 'node:path';
 import passport from './lib/passport.js';
 import authRoutes from './routes/auth.js';
@@ -21,8 +22,14 @@ if (process.env.CORS_ORIGIN) {
 }
 
 app.use(express.json({ limit: '1mb' }));
+const PgSession = connectPgSimple(session);
+
 app.use(
   session({
+    store: new PgSession({
+      conString: process.env.DATABASE_URL,
+      createTableIfMissing: true,
+    }),
     secret: process.env.SESSION_SECRET || 'dev-session-secret',
     resave: false,
     saveUninitialized: false,
