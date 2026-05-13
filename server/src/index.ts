@@ -4,6 +4,7 @@ import cors from 'cors';
 import compression from 'compression';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
+import { Pool } from 'pg';
 import path from 'node:path';
 import passport from './lib/passport.js';
 import authRoutes from './routes/auth.js';
@@ -13,6 +14,9 @@ import attachmentsRoutes from './routes/attachments.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
+
+const sessionPool = new Pool({ connectionString: process.env.DATABASE_URL });
+sessionPool.on('error', (err) => console.error('Session pool error:', err));
 
 app.set('trust proxy', 1);
 app.use(compression());
@@ -27,7 +31,7 @@ const PgSession = connectPgSimple(session);
 app.use(
   session({
     store: new PgSession({
-      conString: process.env.DATABASE_URL,
+      pool: sessionPool,
       createTableIfMissing: true,
     }),
     secret: process.env.SESSION_SECRET || 'dev-session-secret',
