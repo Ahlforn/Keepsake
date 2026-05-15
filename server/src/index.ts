@@ -6,6 +6,7 @@ import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import { Pool } from 'pg';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import passport from './lib/passport.js';
 import authRoutes from './routes/auth.js';
 import notesRoutes from './routes/notes.js';
@@ -53,23 +54,27 @@ app.use('/api/notes', notesRoutes);
 app.use('/api/tags', tagsRoutes);
 app.use('/api/attachments', attachmentsRoutes);
 
-// Serve compiled SPA in production
-if (process.env.NODE_ENV === 'production') {
-  const clientDist = path.resolve(process.cwd(), process.env.CLIENT_DIST_DIR ?? './client-dist');
+// Serve compiled SPA (dev: built by `vite build --watch`, prod: `vite build`)
+const clientDist = process.env.CLIENT_DIST_DIR
+  ? path.resolve(process.cwd(), process.env.CLIENT_DIST_DIR)
+  : path.resolve(__dirname, '../../client/dist');
 
-  // Hashed Vite assets — long-lived immutable cache
-  app.use('/assets', express.static(path.join(clientDist, 'assets'), { maxAge: '1y', immutable: true }));
-
-  // Other static files (manifest, sw, workbox, favicon) — short cache, no automatic index
-  app.use(express.static(clientDist, { maxAge: '1h', index: false }));
-
-  // SPA fallback — always serve index.html for non-API, non-upload paths
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
-    res.set('Cache-Control', 'no-cache');
-    res.sendFile(path.join(clientDist, 'index.html'));
-  });
+if (!existsSync(path.join(clientDist, 'index.html'))) {
+  console.warn(`⚠  No client build found at ${clientDist} — run \`npm run dev\` from the repo root or build the client first.`);
 }
+
+// Hashed Vite assets — long-lived immutable cache
+app.use('/assets', express.static(path.join(clientDist, 'assets'), { maxAge: '1y', immutable: true }));
+
+// Other static files (manifest, sw, workbox, favicon) — short cache, no automatic index
+app.use(express.static(clientDist, { maxAge: '1h', index: false }));
+
+// SPA fallback — always serve index.html for non-API, non-upload paths
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
+  res.set('Cache-Control', 'no-cache');
+  res.sendFile(path.join(clientDist, 'index.html'));
+});
 
 // Error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
